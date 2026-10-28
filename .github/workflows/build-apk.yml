@@ -1,0 +1,81 @@
+
+name: Build PHONE FOUNDRY APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Unpack project
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ARCHIVE="PHONE_FOUNDRY_1.1_SOURCE_WITH_ICON.zip"
+          test -f "$ARCHIVE"
+
+          mkdir -p project
+          unzip -oq "$ARCHIVE" -d project
+
+          test -f project/settings.gradle
+          test -f project/app/build.gradle
+          test -s project/app/src/main/assets/index.html
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'platform-tools'
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          sdkmanager --install \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
+
+      - name: Build APK
+        working-directory: project
+        shell: bash
+        run: |
+          set -euo pipefail
+          gradle --no-daemon assembleDebug
+
+      - name: Verify APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          APK="project/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          echo "APK built successfully"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PHONE-FOUNDRY-1.1-APK
+          path: project/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
