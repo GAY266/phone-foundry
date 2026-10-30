@@ -1,0 +1,127 @@
+
+name: PHONE FOUNDRY - Build APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
+
+    steps:
+      - name: Download project
+        uses: actions/checkout@v4
+
+      - name: Install Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Prepare Android SDK
+        shell: bash
+        run: |
+          set -e
+          mkdir -p "$ANDROID_HOME/cmdline-tools"
+
+          SDKMANAGER=$(find "$ANDROID_HOME/cmdline-tools" -type f -name sdkmanager 2>/dev/null | sort -V | tail -n 1 || true)
+
+          if [ -z "$SDKMANAGER" ]; then
+            echo "Installing Android Command-line Tools..."
+
+            mkdir -p "$ANDROID_HOME/cmdline-tools/latest"
+
+            curl -fL \
+              https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip \
+              -o /tmp/android-tools.zip
+
+            mkdir -p /tmp/android-tools
+            unzip -q /tmp/android-tools.zip -d /tmp/android-tools
+
+            rm -rf "$ANDROID_HOME/cmdline-tools/latest"
+            mv /tmp/android-tools/cmdline-tools "$ANDROID_HOME/cmdline-tools/latest"
+
+            SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          fi
+
+          if [ ! -f "$SDKMANAGER" ]; then
+            echo "ERROR: sdkmanager was not found"
+            exit 1
+          fi
+
+          echo "SDKMANAGER=$SDKMANAGER" >> "$GITHUB_ENV"
+          echo "Found: $SDKMANAGER"
+
+      - name: Accept Android licenses
+        shell: bash
+        run: |
+          yes | "$SDKMANAGER" --licenses || true
+
+      - name: Install Android packages
+        shell: bash
+        run: |
+          "$SDKMANAGER" "platform-tools"
+          "$SDKMANAGER" "platforms;android-35"
+          "$SDKMANAGER" "build-tools;35.0.0"
+
+      - name: Locate Gradle project
+        shell: bash
+        run: |
+          echo "Project files:"
+          find . -maxdepth 5 -type f \( \
+            -name "settings.gradle" -o \
+            -name "settings.gradle.kts" -o \
+            -name "build.gradle" -o \
+            -name "build.gradle.kts" \
+          \) -print
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build APK
+        shell: bash
+        run: |
+          set -e
+
+          if [ -f "./gradlew" ]; then
+            chmod +x ./gradlew
+            ./gradlew assembleDebug --stacktrace
+          elif [ -f "./gradlew.bat" ]; then
+            echo "ERROR: Only Windows Gradle wrapper was found."
+            exit 1
+          else
+            echo "ERROR: gradlew was not found in the repository root."
+            echo "A Gradle Wrapper or installed Gradle is required."
+            exit 1
+          fi
+
+      - name: Find APK
+        shell: bash
+        run: |
+          APK=$(find . -type f -path "*/build/outputs/apk/debug/*.apk" | head -n 1)
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: APK was not generated"
+            exit 1
+          fi
+
+          echo "APK_PATH=$APK" >> "$GITHUB_ENV"
+          echo "APK found: $APK"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: PHONE-FOUNDRY-1.2.0-APK
+          path: ${{ env.APK_PATH }}
+          if-no-files-found: error
+          retention-days: 14
